@@ -16,7 +16,7 @@ pub enum Fork {
 
 pub fn fork() -> Result<Fork> {
     match unsafe { libcfork() } {
-        errno if errno < 0 => Err("error".into()),
+        errno if errno < 0 => Err(Error::Errno(-errno)),
         0 => Ok(Fork::Child),
         pid => Ok(Fork::Parent(pid)),
     }

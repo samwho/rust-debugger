@@ -47,6 +47,8 @@ fn parent(child_pid: pid_t) -> Result<()> {
         match wait()? {
             Stopped(_, _) => {
                 icounter += 1;
+                let regs = ptrace::getregs(child_pid)?;
+                println!("rax: {}", regs.rax);
                 ptrace::singlestep(child_pid)?;
             }
             _ => break,
