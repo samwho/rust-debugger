@@ -1,11 +1,12 @@
-use std::{error, fmt};
 use libc::c_int;
+use std::{error, fmt};
 
 #[derive(Debug)]
 pub enum Error {
     String(String),
     NulError(std::ffi::NulError),
     Errno(c_int),
+    IntoStringError(std::ffi::IntoStringError),
 }
 
 impl error::Error for Error {
@@ -14,6 +15,7 @@ impl error::Error for Error {
             Error::String(_) => None,
             Error::NulError(ref e) => Some(e),
             Error::Errno(_) => None,
+            Error::IntoStringError(ref e) => Some(e),
         }
     }
 }
@@ -24,6 +26,7 @@ impl fmt::Display for Error {
             Error::String(ref s) => f.write_str(s),
             Error::NulError(ref e) => e.fmt(f),
             Error::Errno(errno) => write!(f, "errno {}", errno),
+            Error::IntoStringError(ref e) => e.fmt(f),
         }
     }
 }
@@ -43,5 +46,11 @@ impl From<String> for Error {
 impl From<std::ffi::NulError> for Error {
     fn from(e: std::ffi::NulError) -> Error {
         Error::NulError(e)
+    }
+}
+
+impl From<std::ffi::IntoStringError> for Error {
+    fn from(e: std::ffi::IntoStringError) -> Error {
+        Error::IntoStringError(e)
     }
 }

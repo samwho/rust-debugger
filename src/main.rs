@@ -2,25 +2,67 @@ mod error;
 mod result;
 mod safe;
 
+use crate::error::Error;
 use crate::result::Result;
-use crate::safe::{fork, Fork, execl, ptrace::{traceme}};
+use crate::safe::{
+    execl, fork, ptrace, strerror, wait,
+    Fork::{Child, Parent},
+    WaitStatus::Stopped,
+};
+use human_panic::setup_panic;
 use libc::pid_t;
+use std::process::exit;
 
-fn main() -> Result<()> {
+fn main() {
+    setup_panic!();
+
+    match app() {
+        Ok(_) => {}
+        Err(Error::Errno(errno)) => {
+            let errstr = strerror(errno).unwrap();
+            eprintln!("libc err: {}", errstr);
+            exit(1);
+        }
+        Err(e) => {
+            eprintln!("err: {}", e);
+            exit(1);
+        }
+    }
+}
+
+fn app() -> Result<()> {
     match fork()? {
-        Fork::Parent(child_pid) => parent(child_pid),
-        Fork::Child => child()?,
+        Parent(child_pid) => parent(child_pid)?,
+        Child => child()?,
     };
 
     Ok(())
 }
 
-fn parent(child_pid: pid_t) {
-  println!("Hello from parent! Child is {}.", child_pid);
+fn parent(child_pid: pid_t) -> Result<()> {
+    println!("[parent] child_pid {}", child_pid);
+
+    let mut icounter = 0;
+    loop {
+        match wait()? {
+            Stopped(_, _) => {
+                icounter += 1;
+                ptrace::singlestep(child_pid)?;
+            }
+            _ => break,
+        }
+    }
+
+    println!("[parent] child executed {} instructions", icounter);
+
+    Ok(())
 }
 
 fn child() -> Result<()> {
-  traceme()?;
-  execl("/bin/date")?;
-  Ok(())
+    println!("[child] calling traceme");
+    ptrace::traceme()?;
+
+    println!("[child] executing binary");
+    execl("/bin/date")?;
+    Ok(())
 }
