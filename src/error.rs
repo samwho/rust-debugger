@@ -7,6 +7,7 @@ pub enum Error {
     NulError(std::ffi::NulError),
     Errno(c_int),
     IntoStringError(std::ffi::IntoStringError),
+    ReadlineError(rustyline::error::ReadlineError),
 }
 
 impl error::Error for Error {
@@ -16,6 +17,7 @@ impl error::Error for Error {
             Error::NulError(ref e) => Some(e),
             Error::Errno(_) => None,
             Error::IntoStringError(ref e) => Some(e),
+            Error::ReadlineError(ref e) => Some(e),
         }
     }
 }
@@ -27,6 +29,7 @@ impl fmt::Display for Error {
             Error::NulError(ref e) => e.fmt(f),
             Error::Errno(errno) => write!(f, "errno {}", errno),
             Error::IntoStringError(ref e) => e.fmt(f),
+            Error::ReadlineError(ref e) => e.fmt(f),
         }
     }
 }
@@ -46,6 +49,12 @@ impl From<String> for Error {
 impl From<std::ffi::NulError> for Error {
     fn from(e: std::ffi::NulError) -> Error {
         Error::NulError(e)
+    }
+}
+
+impl From<rustyline::error::ReadlineError> for Error {
+    fn from(e: rustyline::error::ReadlineError) -> Error {
+        Error::ReadlineError(e)
     }
 }
 

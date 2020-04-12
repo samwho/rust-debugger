@@ -7,3 +7,4 @@ version = "0.1.0"
 [dependencies]
 human-panic = "*"
 libc = "0.2"
+rustyline = "6.1.1"

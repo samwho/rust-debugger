@@ -1,6 +1,9 @@
 use crate::result::Result;
 use crate::safe::errwrap;
-use libc::{pid_t, ptrace, user_regs_struct, PTRACE_GETREGS, PTRACE_SINGLESTEP, PTRACE_TRACEME};
+use libc::{
+    pid_t, ptrace, size_t, user_regs_struct, PTRACE_GETREGS, PTRACE_PEEKTEXT, PTRACE_POKETEXT,
+    PTRACE_SETREGS, PTRACE_SINGLESTEP, PTRACE_TRACEME,
+};
 
 pub fn traceme() -> Result<()> {
     errwrap(|| unsafe { ptrace(PTRACE_TRACEME, 0, &mut 0, 0) })?;
@@ -46,4 +49,18 @@ pub fn getregs(pid: pid_t) -> Result<user_regs_struct> {
     errwrap(|| unsafe { ptrace(PTRACE_GETREGS, pid, 0, &mut regs) })?;
 
     Ok(regs)
+}
+
+pub fn setregs(pid: pid_t, regs: &user_regs_struct) -> Result<()> {
+    errwrap(|| unsafe { ptrace(PTRACE_SETREGS, pid, 0, regs) })?;
+    Ok(())
+}
+
+pub fn peek(pid: pid_t, addr: usize) -> Result<usize> {
+    errwrap(|| unsafe { ptrace(PTRACE_PEEKTEXT, pid, addr, 0) }).map(|d| d as usize)
+}
+
+pub fn poke(pid: pid_t, addr: usize, data: usize) -> Result<()> {
+    errwrap(|| unsafe { ptrace(PTRACE_POKETEXT, pid, addr, data) })?;
+    Ok(())
 }
