@@ -3,7 +3,7 @@ pub mod ptrace;
 use crate::error::Error;
 use crate::result::Result;
 use libc::{
-    __error, c_int, execl as libcexecl, fork as libcfork, pid_t, strerror as libcstrerror,
+    __errno_location, c_int, execl as libcexecl, fork as libcfork, pid_t, strerror as libcstrerror,
     wait as libcwait, WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG,
     WTERMSIG,
 };
@@ -26,9 +26,9 @@ pub fn errwrap<F, T>(f: F) -> Result<T>
 where
     F: FnOnce() -> T,
 {
-    unsafe { *__error() = 0 };
+    unsafe { *__errno_location() = 0 };
     let result = f();
-    match unsafe { *__error() } {
+    match unsafe { *__errno_location() } {
         0 => Ok(result),
         errno => Err(Error::Errno(errno)),
     }
