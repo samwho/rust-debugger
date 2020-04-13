@@ -8,6 +8,7 @@ pub enum Error {
     Errno(c_int),
     IntoStringError(std::ffi::IntoStringError),
     ReadlineError(rustyline::error::ReadlineError),
+    ParseIntError(std::num::ParseIntError),
 }
 
 impl error::Error for Error {
@@ -18,6 +19,7 @@ impl error::Error for Error {
             Error::Errno(_) => None,
             Error::IntoStringError(ref e) => Some(e),
             Error::ReadlineError(ref e) => Some(e),
+            Error::ParseIntError(ref e) => Some(e),
         }
     }
 }
@@ -30,6 +32,7 @@ impl fmt::Display for Error {
             Error::Errno(errno) => write!(f, "errno {}", errno),
             Error::IntoStringError(ref e) => e.fmt(f),
             Error::ReadlineError(ref e) => e.fmt(f),
+            Error::ParseIntError(ref e) => e.fmt(f),
         }
     }
 }
@@ -43,6 +46,12 @@ impl From<&str> for Error {
 impl From<String> for Error {
     fn from(s: String) -> Error {
         Error::String(s)
+    }
+}
+
+impl From<std::num::ParseIntError> for Error {
+    fn from(e: std::num::ParseIntError) -> Error {
+        Error::ParseIntError(e)
     }
 }
 

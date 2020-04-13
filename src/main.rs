@@ -6,9 +6,6 @@ mod sys;
 #[macro_use]
 extern crate log;
 
-#[macro_use]
-extern crate lazy_static;
-
 use crate::debugger::Subordinate;
 use crate::error::Error;
 use crate::result::Result;
@@ -16,7 +13,6 @@ use crate::sys::strerror;
 use human_panic::setup_panic;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use std::collections::HashMap;
 use std::env::args;
 use std::process::exit;
 
@@ -42,12 +38,10 @@ fn app() -> Result<()> {
     let mut subordinate = Subordinate::spawn(args().skip(1).collect())?;
 
     let mut rl = Editor::<()>::new();
-    if rl.load_history("history.txt").is_err() {}
     loop {
         let readline = rl.readline("> ");
         match readline {
             Ok(line) => {
-                rl.add_history_entry(line.as_str());
                 execute_command(&mut subordinate, line.split_whitespace().collect())?;
                 if let Some(exit_status) = subordinate.exit_status() {
                     println!("debugged process exited with status: {}", exit_status);
@@ -59,7 +53,6 @@ fn app() -> Result<()> {
             Err(err) => return Err(err.into()),
         }
     }
-    rl.save_history("history.txt")?;
 
     Ok(())
 }
@@ -69,6 +62,7 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
         ["regs"] => println!("{:?}", subordinate.registers()),
         ["step"] => subordinate.step()?,
         ["cont"] => subordinate.cont()?,
+        ["break", addr] => subordinate.breakpoint(usize::from_str_radix(addr, 16)?)?,
         other => println!("unknown command `{:?}`", other),
     };
 
