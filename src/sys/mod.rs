@@ -3,9 +3,9 @@ pub mod ptrace;
 use crate::error::Error;
 use crate::result::Result;
 use libc::{
-    __errno_location, c_int, execl as libcexecl, fork as libcfork, pid_t, strerror as libcstrerror,
-    wait as libcwait, WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG,
-    WTERMSIG,
+    __errno_location, c_int, execl as libcexecl, execvp as libcexecvp, fork as libcfork, pid_t,
+    strerror as libcstrerror, wait as libcwait, WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED,
+    WIFSTOPPED, WSTOPSIG, WTERMSIG,
 };
 use std::ffi::CString;
 
@@ -46,6 +46,26 @@ pub fn execl(progname: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn execvp(cmd: &Vec<String>) -> Result<()> {
+    if cmd.is_empty() {
+        return Err("command cannot be empty".into());
+    }
+
+    let mut cstr_array = Vec::with_capacity(cmd.len());
+    for arg in cmd {
+        cstr_array.push(CString::new(arg.clone())?);
+    }
+    let mut ptr_array = Vec::with_capacity(cmd.len());
+    for arg in &cstr_array {
+        ptr_array.push(arg.as_ptr());
+    }
+
+    errwrap(|| unsafe {
+        libcexecvp(*ptr_array.first().unwrap(), ptr_array.as_ptr());
+    })
+}
+
+#[derive(Debug)]
 pub enum WaitStatus {
     Stopped(pid_t, i32),
     Continued(pid_t),

@@ -1,5 +1,5 @@
 use crate::result::Result;
-use crate::safe::errwrap;
+use crate::sys::errwrap;
 use libc::{
     pid_t, ptrace, size_t, user_regs_struct, PTRACE_GETREGS, PTRACE_PEEKTEXT, PTRACE_POKETEXT,
     PTRACE_SETREGS, PTRACE_SINGLESTEP, PTRACE_TRACEME,
