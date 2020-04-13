@@ -1,5 +1,5 @@
 use crate::result::Result;
-use crate::sys::{Fork::*, *};
+use crate::sys::{Fork::*, WaitStatus::*, *};
 use libc::user_regs_struct;
 
 #[derive(Clone, Default, Debug)]
@@ -68,7 +68,6 @@ impl From<user_regs_struct> for Registers {
 }
 
 pub struct Subordinate {
-    cmd: Vec<String>,
     pid: i32,
     registers: Registers,
     wait_status: WaitStatus,
@@ -87,23 +86,41 @@ impl Subordinate {
             }
         };
 
-        let wait_status = wait()?;
         Ok(Subordinate {
             pid,
-            cmd,
+            wait_status: wait()?,
             registers: ptrace::getregs(pid)?.into(),
-            wait_status,
         })
     }
 
     pub fn step(&mut self) -> Result<()> {
         ptrace::singlestep(self.pid)?;
-        self.wait_status = wait()?;
-        self.registers = ptrace::getregs(self.pid)?.into();
+        self.fetch_state()?;
+        Ok(())
+    }
+
+    pub fn cont(&mut self) -> Result<()> {
+        ptrace::cont(self.pid)?;
+        self.fetch_state()?;
         Ok(())
     }
 
     pub fn registers(&self) -> &Registers {
         &self.registers
+    }
+
+    pub fn exit_status(&self) -> Option<i32> {
+        if let Exited(_, exit_status) = self.wait_status {
+            return Some(exit_status);
+        }
+        return None;
+    }
+
+    fn fetch_state(&mut self) -> Result<()> {
+        self.wait_status = wait()?;
+        if let Stopped(_, _) = self.wait_status {
+            self.registers = ptrace::getregs(self.pid)?.into();
+        };
+        Ok(())
     }
 }

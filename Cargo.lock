@@ -364,6 +364,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "human-panic",
+ "lazy_static",
  "libc",
  "log",
  "rustyline",

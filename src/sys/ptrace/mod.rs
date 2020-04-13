@@ -1,7 +1,7 @@
 use crate::result::Result;
 use crate::sys::errwrap;
 use libc::{
-    pid_t, ptrace, size_t, user_regs_struct, PTRACE_GETREGS, PTRACE_PEEKTEXT, PTRACE_POKETEXT,
+    pid_t, ptrace, user_regs_struct, PTRACE_CONT, PTRACE_GETREGS, PTRACE_PEEKTEXT, PTRACE_POKETEXT,
     PTRACE_SETREGS, PTRACE_SINGLESTEP, PTRACE_TRACEME,
 };
 
@@ -12,6 +12,11 @@ pub fn traceme() -> Result<()> {
 
 pub fn singlestep(pid: pid_t) -> Result<()> {
     errwrap(|| unsafe { ptrace(PTRACE_SINGLESTEP, pid, &mut 0, 0) })?;
+    Ok(())
+}
+
+pub fn cont(pid: pid_t) -> Result<()> {
+    errwrap(|| unsafe { ptrace(PTRACE_CONT, pid, &mut 0, 0) })?;
     Ok(())
 }
 

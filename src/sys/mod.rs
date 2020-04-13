@@ -3,7 +3,7 @@ pub mod ptrace;
 use crate::error::Error;
 use crate::result::Result;
 use libc::{
-    __errno_location, c_int, execl as libcexecl, execvp as libcexecvp, fork as libcfork, pid_t,
+    __errno_location, c_int, execvp as libcexecvp, fork as libcfork, pid_t,
     strerror as libcstrerror, wait as libcwait, WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED,
     WIFSTOPPED, WSTOPSIG, WTERMSIG,
 };
@@ -38,12 +38,6 @@ pub fn strerror(errno: c_int) -> Result<String> {
     let str_ptr = errwrap(|| unsafe { libcstrerror(errno) })?;
     let cs = unsafe { CString::from_raw(str_ptr) };
     Ok(cs.into_string()?)
-}
-
-pub fn execl(progname: &str) -> Result<()> {
-    let cstr = CString::new(progname)?;
-    errwrap(|| unsafe { libcexecl(cstr.as_ptr(), cstr.as_ptr(), 0) })?;
-    Ok(())
 }
 
 pub fn execvp(cmd: &Vec<String>) -> Result<()> {
