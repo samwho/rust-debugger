@@ -11,6 +11,7 @@ use crate::error::Error;
 use crate::result::Result;
 use crate::sys::strerror;
 use human_panic::setup_panic;
+use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::env::args;
@@ -59,12 +60,64 @@ fn app() -> Result<()> {
 
 fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> {
     match cmd.as_slice() {
-        ["regs"] => println!("{:?}", subordinate.registers()),
+        ["regs"] => print_registers(subordinate)?,
         ["step"] => subordinate.step()?,
         ["cont"] => subordinate.cont()?,
+        ["disas"] => print_disassembly(subordinate)?,
         ["break", addr] => subordinate.breakpoint(usize::from_str_radix(addr, 16)?)?,
         other => println!("unknown command `{:?}`", other),
     };
+
+    Ok(())
+}
+
+fn print_registers(subordinate: &mut Subordinate) -> Result<()> {
+    let regs = subordinate.registers();
+
+    println!("rip: {:x}", regs.rip);
+    println!("rsp: {:x}", regs.rsp);
+    println!("rbp: {:x}", regs.rbp);
+    println!("rax: {:x}", regs.rax);
+    println!("rbx: {:x}", regs.rbx);
+    println!("rcx: {:x}", regs.rcx);
+    println!("rdx: {:x}", regs.rdx);
+    println!("rdi: {:x}", regs.rdi);
+    println!("rsi: {:x}", regs.rsi);
+
+    Ok(())
+}
+
+fn print_disassembly(subordinate: &mut Subordinate) -> Result<()> {
+    let regs = subordinate.registers();
+    let bytes = subordinate.read_mem(regs.rip as usize, 64)?;
+    let mut decoder = Decoder::new(64, bytes.as_slice(), DecoderOptions::NONE);
+    decoder.set_ip(regs.rip);
+
+    let mut formatter = NasmFormatter::new();
+
+    let mut output = String::new();
+
+    let mut instruction = Instruction::default();
+
+    while decoder.can_decode() {
+        decoder.decode_out(&mut instruction);
+
+        output.clear();
+        formatter.format(&instruction, &mut output);
+
+        print!("{:016x} ", instruction.ip());
+        let start_index = (instruction.ip() - regs.rip) as usize;
+        let instr_bytes = &bytes[start_index..start_index + instruction.len()];
+        for b in instr_bytes.iter() {
+            print!("{:02x}", b);
+        }
+        if instr_bytes.len() < 10 {
+            for _ in 0..10 - instr_bytes.len() {
+                print!("  ");
+            }
+        }
+        println!(" {}", output);
+    }
 
     Ok(())
 }
