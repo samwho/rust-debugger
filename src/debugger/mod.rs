@@ -193,13 +193,12 @@ impl Subordinate {
     }
 
     fn handle_breakpoint(&mut self) -> Result<()> {
-        let addr = self.registers.rip as usize;
+        let addr = (self.registers.rip - 1) as usize;
         if let Some(data) = self.breakpoints.remove(&addr) {
+            info!("hit breakpoint: {:x}", addr);
+            self.registers.rip = addr as u64;
             self.poke(self.registers.rip as usize, data)?;
-            self.registers.rip -= 1;
             ptrace::setregs(self.pid, &self.registers.clone().into())?;
-            self.step()?;
-            self.breakpoint(addr)?;
         }
 
         Ok(())

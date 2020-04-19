@@ -74,15 +74,15 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
 fn print_registers(subordinate: &mut Subordinate) -> Result<()> {
     let regs = subordinate.registers();
 
-    println!("rip: {:x}", regs.rip);
-    println!("rsp: {:x}", regs.rsp);
-    println!("rbp: {:x}", regs.rbp);
-    println!("rax: {:x}", regs.rax);
-    println!("rbx: {:x}", regs.rbx);
-    println!("rcx: {:x}", regs.rcx);
-    println!("rdx: {:x}", regs.rdx);
-    println!("rdi: {:x}", regs.rdi);
-    println!("rsi: {:x}", regs.rsi);
+    println!("rip: 0x{:x}", regs.rip);
+    println!("rsp: 0x{:x}", regs.rsp);
+    println!("rbp: 0x{:x}", regs.rbp);
+    println!("rax: 0x{:x}", regs.rax);
+    println!("rbx: 0x{:x}", regs.rbx);
+    println!("rcx: 0x{:x}", regs.rcx);
+    println!("rdx: 0x{:x}", regs.rdx);
+    println!("rdi: 0x{:x}", regs.rdi);
+    println!("rsi: 0x{:x}", regs.rsi);
 
     Ok(())
 }
