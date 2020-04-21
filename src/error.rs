@@ -9,6 +9,7 @@ pub enum Error {
     IntoStringError(std::ffi::IntoStringError),
     ReadlineError(rustyline::error::ReadlineError),
     ParseIntError(std::num::ParseIntError),
+    GimliError(gimli::Error),
 }
 
 impl error::Error for Error {
@@ -20,6 +21,7 @@ impl error::Error for Error {
             Error::IntoStringError(ref e) => Some(e),
             Error::ReadlineError(ref e) => Some(e),
             Error::ParseIntError(ref e) => Some(e),
+            Error::GimliError(ref e) => Some(e),
         }
     }
 }
@@ -33,6 +35,7 @@ impl fmt::Display for Error {
             Error::IntoStringError(ref e) => e.fmt(f),
             Error::ReadlineError(ref e) => e.fmt(f),
             Error::ParseIntError(ref e) => e.fmt(f),
+            Error::GimliError(ref e) => e.fmt(f),
         }
     }
 }
@@ -46,6 +49,12 @@ impl From<&str> for Error {
 impl From<String> for Error {
     fn from(s: String) -> Error {
         Error::String(s)
+    }
+}
+
+impl From<gimli::Error> for Error {
+    fn from(e: gimli::Error) -> Error {
+        Error::GimliError(e)
     }
 }
 

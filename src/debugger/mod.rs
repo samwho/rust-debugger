@@ -1,7 +1,176 @@
 use crate::result::Result;
 use crate::sys::{Fork::*, WaitStatus::*, *};
 use libc::user_regs_struct;
+use object::{Object, ObjectSection};
 use std::collections::HashMap;
+use std::{borrow, env, fs};
+
+pub struct Subordinate {
+    pid: i32,
+    registers: Registers,
+    wait_status: WaitStatus,
+    breakpoints: HashMap<usize, usize>,
+}
+
+impl Subordinate {
+    pub fn spawn(cmd: Vec<String>) -> Result<Self> {
+        info!("spawning with cmd: {:?}", cmd);
+
+        let pid = match fork()? {
+            Parent(child_pid) => child_pid,
+            Child => {
+                ptrace::traceme()?;
+                execvp(&cmd)?;
+                0
+            }
+        };
+
+        if std::path::Path::new(&cmd[0]).exists() {
+            let file = fs::File::open(&cmd[0]).unwrap();
+            Self::parse_debug_info(file)?;
+        }
+
+        Ok(Subordinate {
+            pid,
+            wait_status: wait()?,
+            registers: ptrace::getregs(pid)?.into(),
+            breakpoints: HashMap::new(),
+        })
+    }
+
+    pub fn step(&mut self) -> Result<()> {
+        ptrace::singlestep(self.pid)?;
+        self.fetch_state()?;
+        Ok(())
+    }
+
+    pub fn cont(&mut self) -> Result<()> {
+        ptrace::cont(self.pid)?;
+        self.fetch_state()?;
+        Ok(())
+    }
+
+    pub fn peek(&self, addr: usize) -> Result<usize> {
+        ptrace::peek(self.pid, addr)
+    }
+
+    pub fn poke(&self, addr: usize, data: usize) -> Result<()> {
+        ptrace::poke(self.pid, addr, data)
+    }
+
+    pub fn read_mem(&self, from: usize, size: usize) -> Result<Vec<u8>> {
+        let mut bytes = Vec::with_capacity(size);
+        let wordlen = std::mem::size_of::<usize>();
+        for i in 0..(size / wordlen) {
+            for byte in self.peek(from + wordlen * i)?.to_ne_bytes().iter() {
+                bytes.push(*byte);
+            }
+        }
+        Ok(bytes)
+    }
+
+    pub fn breakpoint(&mut self, addr: usize) -> Result<()> {
+        if let Some(_) = self.breakpoints.get(&addr) {
+            return Ok(());
+        }
+
+        let data = self.peek(addr)?;
+        self.poke(addr, data & (usize::max_value() - 255) | 0xcc)?;
+        self.breakpoints.insert(addr, data);
+        Ok(())
+    }
+
+    pub fn registers(&self) -> &Registers {
+        &self.registers
+    }
+
+    pub fn exit_status(&self) -> Option<i32> {
+        if let Exited(_, exit_status) = self.wait_status {
+            return Some(exit_status);
+        }
+        return None;
+    }
+
+    fn fetch_state(&mut self) -> Result<()> {
+        self.wait_status = wait()?;
+        if let Stopped(_, _) = self.wait_status {
+            self.registers = ptrace::getregs(self.pid)?.into();
+            self.handle_breakpoint()?;
+        };
+        Ok(())
+    }
+
+    fn handle_breakpoint(&mut self) -> Result<()> {
+        let addr = (self.registers.rip - 1) as usize;
+        if let Some(data) = self.breakpoints.remove(&addr) {
+            info!("hit breakpoint: {:x}", addr);
+            self.registers.rip = addr as u64;
+            self.poke(self.registers.rip as usize, data)?;
+            ptrace::setregs(self.pid, &self.registers.clone().into())?;
+        }
+
+        Ok(())
+    }
+
+    fn parse_debug_info(file: fs::File) -> Result<()> {
+        let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
+        let object = object::File::parse(&*mmap).unwrap();
+        let endian = if object.is_little_endian() {
+            gimli::RunTimeEndian::Little
+        } else {
+            gimli::RunTimeEndian::Big
+        };
+        // Load a section and return as `Cow<[u8]>`.
+        let load_section =
+            |id: gimli::SectionId| -> std::result::Result<borrow::Cow<[u8]>, gimli::Error> {
+                match object.section_by_name(id.name()) {
+                    Some(ref section) => Ok(section
+                        .uncompressed_data()
+                        .unwrap_or(borrow::Cow::Borrowed(&[][..]))),
+                    None => Ok(borrow::Cow::Borrowed(&[][..])),
+                }
+            };
+        // Load a supplementary section. We don't have a supplementary object file,
+        // so always return an empty slice.
+        let load_section_sup = |_| Ok(borrow::Cow::Borrowed(&[][..]));
+
+        // Load all of the sections.
+        let dwarf_cow = gimli::Dwarf::load(&load_section, &load_section_sup)?;
+
+        // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
+        let borrow_section: &dyn for<'a> Fn(
+            &'a borrow::Cow<[u8]>,
+        )
+            -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
+            &|section| gimli::EndianSlice::new(&*section, endian);
+
+        // Create `EndianSlice`s for all of the sections.
+        let dwarf = dwarf_cow.borrow(&borrow_section);
+
+        // Iterate over the compilation units.
+        let mut iter = dwarf.units();
+        while let Some(header) = iter.next()? {
+            println!("Unit at <.debug_info+0x{:x}>", header.offset().0);
+            let unit = dwarf.unit(header)?;
+
+            // Iterate over the Debugging Information Entries (DIEs) in the unit.
+            let mut depth = 0;
+            let mut entries = unit.entries();
+            while let Some((delta_depth, entry)) = entries.next_dfs()? {
+                depth += delta_depth;
+                println!("<{}><{:x}> {}", depth, entry.offset().0, entry.tag());
+
+                // Iterate over the attributes in the DIE.
+                // attr.string_value(&dwarf.debug_str).map(|ds| ds.to_string())
+                let mut attrs = entry.attrs();
+                while let Some(attr) = attrs.next()? {
+                    println!("   {}: {:?}", attr.name(), attr.value());
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Default, Debug)]
 pub struct Registers {
@@ -99,108 +268,5 @@ impl From<Registers> for user_regs_struct {
             fs: r.fs,
             gs: r.gs,
         }
-    }
-}
-
-pub struct Subordinate {
-    pid: i32,
-    registers: Registers,
-    wait_status: WaitStatus,
-    breakpoints: HashMap<usize, usize>,
-}
-
-impl Subordinate {
-    pub fn spawn(cmd: Vec<String>) -> Result<Self> {
-        info!("spawning with cmd: {:?}", cmd);
-
-        let pid = match fork()? {
-            Parent(child_pid) => child_pid,
-            Child => {
-                ptrace::traceme()?;
-                execvp(&cmd)?;
-                0
-            }
-        };
-
-        Ok(Subordinate {
-            pid,
-            wait_status: wait()?,
-            registers: ptrace::getregs(pid)?.into(),
-            breakpoints: HashMap::new(),
-        })
-    }
-
-    pub fn step(&mut self) -> Result<()> {
-        ptrace::singlestep(self.pid)?;
-        self.fetch_state()?;
-        Ok(())
-    }
-
-    pub fn cont(&mut self) -> Result<()> {
-        ptrace::cont(self.pid)?;
-        self.fetch_state()?;
-        Ok(())
-    }
-
-    pub fn peek(&self, addr: usize) -> Result<usize> {
-        ptrace::peek(self.pid, addr)
-    }
-
-    pub fn poke(&self, addr: usize, data: usize) -> Result<()> {
-        ptrace::poke(self.pid, addr, data)
-    }
-
-    pub fn read_mem(&self, from: usize, size: usize) -> Result<Vec<u8>> {
-        let mut bytes = Vec::with_capacity(size);
-        let wordlen = std::mem::size_of::<usize>();
-        for i in 0..(size / wordlen) {
-            for byte in self.peek(from + wordlen * i)?.to_ne_bytes().iter() {
-                bytes.push(*byte);
-            }
-        }
-        Ok(bytes)
-    }
-
-    pub fn breakpoint(&mut self, addr: usize) -> Result<()> {
-        if let Some(_) = self.breakpoints.get(&addr) {
-            return Ok(());
-        }
-
-        let data = self.peek(addr)?;
-        self.poke(addr, data & (usize::max_value() - 255) | 0xcc)?;
-        self.breakpoints.insert(addr, data);
-        Ok(())
-    }
-
-    pub fn registers(&self) -> &Registers {
-        &self.registers
-    }
-
-    pub fn exit_status(&self) -> Option<i32> {
-        if let Exited(_, exit_status) = self.wait_status {
-            return Some(exit_status);
-        }
-        return None;
-    }
-
-    fn fetch_state(&mut self) -> Result<()> {
-        self.wait_status = wait()?;
-        if let Stopped(_, _) = self.wait_status {
-            self.registers = ptrace::getregs(self.pid)?.into();
-            self.handle_breakpoint()?;
-        };
-        Ok(())
-    }
-
-    fn handle_breakpoint(&mut self) -> Result<()> {
-        let addr = (self.registers.rip - 1) as usize;
-        if let Some(data) = self.breakpoints.remove(&addr) {
-            info!("hit breakpoint: {:x}", addr);
-            self.registers.rip = addr as u64;
-            self.poke(self.registers.rip as usize, data)?;
-            ptrace::setregs(self.pid, &self.registers.clone().into())?;
-        }
-
-        Ok(())
     }
 }
