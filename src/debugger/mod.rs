@@ -1,15 +1,18 @@
 use crate::result::Result;
 use crate::sys::{Fork::*, WaitStatus::*, *};
+use gimli::constants::{DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram};
+use gimli::read::AttributeValue;
 use libc::user_regs_struct;
 use object::{Object, ObjectSection};
 use std::collections::HashMap;
-use std::{borrow, env, fs};
+use std::{borrow, fs};
 
 pub struct Subordinate {
     pid: i32,
     registers: Registers,
     wait_status: WaitStatus,
     breakpoints: HashMap<usize, usize>,
+    symbols: HashMap<String, (u64, u64)>,
 }
 
 impl Subordinate {
@@ -25,16 +28,19 @@ impl Subordinate {
             }
         };
 
-        if std::path::Path::new(&cmd[0]).exists() {
+        let symbols = if std::path::Path::new(&cmd[0]).exists() {
             let file = fs::File::open(&cmd[0]).unwrap();
-            Self::parse_debug_info(file)?;
-        }
+            Self::parse_debug_info(file)?
+        } else {
+            HashMap::new()
+        };
 
         Ok(Subordinate {
             pid,
             wait_status: wait()?,
             registers: ptrace::getregs(pid)?.into(),
             breakpoints: HashMap::new(),
+            symbols,
         })
     }
 
@@ -84,6 +90,10 @@ impl Subordinate {
         &self.registers
     }
 
+    pub fn symbols(&self) -> &HashMap<String, (u64, u64)> {
+        &self.symbols
+    }
+
     pub fn exit_status(&self) -> Option<i32> {
         if let Exited(_, exit_status) = self.wait_status {
             return Some(exit_status);
@@ -112,7 +122,7 @@ impl Subordinate {
         Ok(())
     }
 
-    fn parse_debug_info(file: fs::File) -> Result<()> {
+    fn parse_debug_info(file: fs::File) -> Result<HashMap<String, (u64, u64)>> {
         let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
         let object = object::File::parse(&*mmap).unwrap();
         let endian = if object.is_little_endian() {
@@ -149,26 +159,39 @@ impl Subordinate {
 
         // Iterate over the compilation units.
         let mut iter = dwarf.units();
+        let mut symbols: HashMap<String, (u64, u64)> = HashMap::new();
         while let Some(header) = iter.next()? {
-            println!("Unit at <.debug_info+0x{:x}>", header.offset().0);
             let unit = dwarf.unit(header)?;
 
             // Iterate over the Debugging Information Entries (DIEs) in the unit.
-            let mut depth = 0;
             let mut entries = unit.entries();
-            while let Some((delta_depth, entry)) = entries.next_dfs()? {
-                depth += delta_depth;
-                println!("<{}><{:x}> {}", depth, entry.offset().0, entry.tag());
-
-                // Iterate over the attributes in the DIE.
-                // attr.string_value(&dwarf.debug_str).map(|ds| ds.to_string())
-                let mut attrs = entry.attrs();
-                while let Some(attr) = attrs.next()? {
-                    println!("   {}: {:?}", attr.name(), attr.value());
+            while let Some((_, entry)) = entries.next_dfs()? {
+                if entry.tag() != DW_TAG_subprogram {
+                    continue;
                 }
+
+                let name = match entry.attr(DW_AT_name)? {
+                    Some(name) => name
+                        .string_value(&dwarf.debug_str)
+                        .map(|ds| ds.to_string())
+                        .unwrap()?,
+                    None => continue,
+                };
+
+                let low_pc = match entry.attr_value(DW_AT_low_pc)? {
+                    Some(AttributeValue::Addr(low_pc)) => low_pc,
+                    _ => continue,
+                };
+
+                let high_pc = match entry.attr_value(DW_AT_high_pc)? {
+                    Some(AttributeValue::Udata(high_pc)) => high_pc,
+                    _ => continue,
+                };
+
+                symbols.insert(name.to_string(), (low_pc, high_pc));
             }
         }
-        Ok(())
+        Ok(symbols)
     }
 }
 

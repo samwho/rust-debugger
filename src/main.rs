@@ -60,15 +60,34 @@ fn app() -> Result<()> {
 
 fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> {
     match cmd.as_slice() {
-        ["regs"] => print_registers(subordinate)?,
-        ["step"] => subordinate.step()?,
-        ["cont"] => subordinate.cont()?,
-        ["disas"] => print_disassembly(subordinate)?,
-        ["break", addr] => subordinate.breakpoint(usize::from_str_radix(addr, 16)?)?,
+        ["r"] | ["regs"] => print_registers(subordinate)?,
+        ["s"] | ["step"] => subordinate.step()?,
+        ["c"] | ["cont"] => subordinate.cont()?,
+        ["d"] | ["disas"] => print_disassembly(subordinate)?,
+        ["syms"] | ["symbols"] => print_symbols(subordinate)?,
+        ["b", addr] | ["break", addr] => set_breakpoint(subordinate, addr)?,
         other => println!("unknown command `{:?}`", other),
     };
 
     Ok(())
+}
+
+fn set_breakpoint(subordinate: &mut Subordinate, addr: &str) -> Result<()> {
+    if let Ok(addr) = usize::from_str_radix(addr, 16) {
+        return subordinate.breakpoint(addr);
+    }
+
+    let symbols = subordinate.symbols();
+    let fetch = symbols.get(addr).map(|t| t.to_owned());
+    if let Some((addr, _)) = fetch {
+        return subordinate.breakpoint(addr as usize);
+    }
+
+    Err(format!(
+        "couldn't set breakpoint on `{}`, not a known address or symbol",
+        addr
+    )
+    .into())
 }
 
 fn print_registers(subordinate: &mut Subordinate) -> Result<()> {
@@ -119,5 +138,12 @@ fn print_disassembly(subordinate: &mut Subordinate) -> Result<()> {
         println!(" {}", output);
     }
 
+    Ok(())
+}
+
+fn print_symbols(subordinate: &mut Subordinate) -> Result<()> {
+    for (name, (low_pc, _)) in subordinate.symbols() {
+        println!("0x{:x} {}", low_pc, name);
+    }
     Ok(())
 }
