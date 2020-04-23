@@ -1,11 +1,16 @@
+mod dwarf;
+
+use crate::debugger::dwarf::dump_file;
 use crate::result::Result;
 use crate::sys::{Fork::*, WaitStatus::*, *};
-use gimli::constants::{DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram};
+use gimli::constants::{
+    DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_compile_unit, DW_TAG_subprogram,
+};
 use gimli::read::AttributeValue;
 use libc::user_regs_struct;
 use object::{Object, ObjectSection};
 use std::collections::HashMap;
-use std::{borrow, fs};
+use std::{borrow, fs, path};
 
 pub struct Subordinate {
     pid: i32,
@@ -166,29 +171,31 @@ impl Subordinate {
             // Iterate over the Debugging Information Entries (DIEs) in the unit.
             let mut entries = unit.entries();
             while let Some((_, entry)) = entries.next_dfs()? {
-                if entry.tag() != DW_TAG_subprogram {
-                    continue;
+                match entry.tag() {
+                    DW_TAG_subprogram => {
+                        let name = match entry.attr(DW_AT_name)? {
+                            Some(name) => name
+                                .string_value(&dwarf.debug_str)
+                                .map(|ds| ds.to_string())
+                                .unwrap()?,
+                            None => continue,
+                        };
+
+                        let low_pc = match entry.attr_value(DW_AT_low_pc)? {
+                            Some(AttributeValue::Addr(low_pc)) => low_pc,
+                            _ => continue,
+                        };
+
+                        let high_pc = match entry.attr_value(DW_AT_high_pc)? {
+                            Some(AttributeValue::Udata(high_pc)) => high_pc,
+                            _ => continue,
+                        };
+
+                        symbols.insert(name.to_string(), (low_pc, high_pc));
+                    }
+                    DW_TAG_compile_unit => {}
+                    _ => {}
                 }
-
-                let name = match entry.attr(DW_AT_name)? {
-                    Some(name) => name
-                        .string_value(&dwarf.debug_str)
-                        .map(|ds| ds.to_string())
-                        .unwrap()?,
-                    None => continue,
-                };
-
-                let low_pc = match entry.attr_value(DW_AT_low_pc)? {
-                    Some(AttributeValue::Addr(low_pc)) => low_pc,
-                    _ => continue,
-                };
-
-                let high_pc = match entry.attr_value(DW_AT_high_pc)? {
-                    Some(AttributeValue::Udata(high_pc)) => high_pc,
-                    _ => continue,
-                };
-
-                symbols.insert(name.to_string(), (low_pc, high_pc));
             }
         }
         Ok(symbols)
