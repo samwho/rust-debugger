@@ -77,10 +77,10 @@ fn set_breakpoint(subordinate: &mut Subordinate, addr: &str) -> Result<()> {
         return subordinate.breakpoint(addr);
     }
 
-    let symbols = subordinate.symbols();
+    let symbols = subordinate.debug_info().symbols();
     let fetch = symbols.get(addr).map(|t| t.to_owned());
-    if let Some((addr, _)) = fetch {
-        return subordinate.breakpoint(addr as usize);
+    if let Some(symbol) = fetch {
+        return subordinate.breakpoint(symbol.low_pc as usize);
     }
 
     Err(format!(
@@ -142,8 +142,8 @@ fn print_disassembly(subordinate: &mut Subordinate) -> Result<()> {
 }
 
 fn print_symbols(subordinate: &mut Subordinate) -> Result<()> {
-    for (name, (low_pc, _)) in subordinate.symbols() {
-        println!("0x{:x} {}", low_pc, name);
+    for (name, symbol) in subordinate.debug_info().symbols().into_iter() {
+        println!("0x{:x} {}", symbol.low_pc, name);
     }
     Ok(())
 }

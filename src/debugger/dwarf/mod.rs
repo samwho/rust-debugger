@@ -1,22 +1,20 @@
 use crate::result::Result;
-use gimli::constants::{
-    DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_compile_unit, DW_TAG_subprogram,
-};
+use gimli::constants::{DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram};
 use gimli::read::AttributeValue;
 use object::{Object, ObjectSection};
 use std::collections::HashMap;
 use std::{borrow, fs::File, path::PathBuf};
 
 pub struct LineInfo {
-    path: PathBuf,
-    line: u64,
-    column: u64,
+    pub path: PathBuf,
+    pub line: u64,
+    pub column: u64,
 }
 
 pub struct Symbol {
-    name: String,
-    low_pc: u64,
-    high_pc: u64,
+    pub name: String,
+    pub low_pc: u64,
+    pub high_pc: u64,
 }
 
 pub struct DebugInfo {
@@ -25,7 +23,7 @@ pub struct DebugInfo {
 }
 
 impl DebugInfo {
-    fn new(file: File) -> Result<Self> {
+    pub fn new(file: File) -> Result<Self> {
         let mut pc_to_line: HashMap<u64, LineInfo> = HashMap::new();
         let mut symbols: HashMap<String, Symbol> = HashMap::new();
 
@@ -157,5 +155,9 @@ impl DebugInfo {
             pc_to_line,
             symbols,
         })
+    }
+
+    pub fn symbols(&self) -> &HashMap<String, Symbol> {
+        &self.symbols
     }
 }

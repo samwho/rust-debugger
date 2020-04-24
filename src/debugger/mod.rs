@@ -1,23 +1,18 @@
 mod dwarf;
 
-use crate::debugger::dwarf::dump_file;
+use crate::debugger::dwarf::DebugInfo;
 use crate::result::Result;
 use crate::sys::{Fork::*, WaitStatus::*, *};
-use gimli::constants::{
-    DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_compile_unit, DW_TAG_subprogram,
-};
-use gimli::read::AttributeValue;
 use libc::user_regs_struct;
-use object::{Object, ObjectSection};
 use std::collections::HashMap;
-use std::{borrow, fs, path};
+use std::fs::File;
 
 pub struct Subordinate {
     pid: i32,
     registers: Registers,
     wait_status: WaitStatus,
     breakpoints: HashMap<usize, usize>,
-    symbols: HashMap<String, (u64, u64)>,
+    debug_info: DebugInfo,
 }
 
 impl Subordinate {
@@ -33,19 +28,14 @@ impl Subordinate {
             }
         };
 
-        let symbols = if std::path::Path::new(&cmd[0]).exists() {
-            let file = fs::File::open(&cmd[0]).unwrap();
-            Self::parse_debug_info(file)?
-        } else {
-            HashMap::new()
-        };
+        let debug_info = DebugInfo::new(File::open(&cmd[0])?)?;
 
         Ok(Subordinate {
             pid,
             wait_status: wait()?,
             registers: ptrace::getregs(pid)?.into(),
             breakpoints: HashMap::new(),
-            symbols,
+            debug_info,
         })
     }
 
@@ -95,8 +85,8 @@ impl Subordinate {
         &self.registers
     }
 
-    pub fn symbols(&self) -> &HashMap<String, (u64, u64)> {
-        &self.symbols
+    pub fn debug_info(&self) -> &DebugInfo {
+        &self.debug_info
     }
 
     pub fn exit_status(&self) -> Option<i32> {
@@ -125,80 +115,6 @@ impl Subordinate {
         }
 
         Ok(())
-    }
-
-    fn parse_debug_info(file: fs::File) -> Result<HashMap<String, (u64, u64)>> {
-        let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
-        let object = object::File::parse(&*mmap).unwrap();
-        let endian = if object.is_little_endian() {
-            gimli::RunTimeEndian::Little
-        } else {
-            gimli::RunTimeEndian::Big
-        };
-        // Load a section and return as `Cow<[u8]>`.
-        let load_section =
-            |id: gimli::SectionId| -> std::result::Result<borrow::Cow<[u8]>, gimli::Error> {
-                match object.section_by_name(id.name()) {
-                    Some(ref section) => Ok(section
-                        .uncompressed_data()
-                        .unwrap_or(borrow::Cow::Borrowed(&[][..]))),
-                    None => Ok(borrow::Cow::Borrowed(&[][..])),
-                }
-            };
-        // Load a supplementary section. We don't have a supplementary object file,
-        // so always return an empty slice.
-        let load_section_sup = |_| Ok(borrow::Cow::Borrowed(&[][..]));
-
-        // Load all of the sections.
-        let dwarf_cow = gimli::Dwarf::load(&load_section, &load_section_sup)?;
-
-        // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
-        let borrow_section: &dyn for<'a> Fn(
-            &'a borrow::Cow<[u8]>,
-        )
-            -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
-            &|section| gimli::EndianSlice::new(&*section, endian);
-
-        // Create `EndianSlice`s for all of the sections.
-        let dwarf = dwarf_cow.borrow(&borrow_section);
-
-        // Iterate over the compilation units.
-        let mut iter = dwarf.units();
-        let mut symbols: HashMap<String, (u64, u64)> = HashMap::new();
-        while let Some(header) = iter.next()? {
-            let unit = dwarf.unit(header)?;
-
-            // Iterate over the Debugging Information Entries (DIEs) in the unit.
-            let mut entries = unit.entries();
-            while let Some((_, entry)) = entries.next_dfs()? {
-                match entry.tag() {
-                    DW_TAG_subprogram => {
-                        let name = match entry.attr(DW_AT_name)? {
-                            Some(name) => name
-                                .string_value(&dwarf.debug_str)
-                                .map(|ds| ds.to_string())
-                                .unwrap()?,
-                            None => continue,
-                        };
-
-                        let low_pc = match entry.attr_value(DW_AT_low_pc)? {
-                            Some(AttributeValue::Addr(low_pc)) => low_pc,
-                            _ => continue,
-                        };
-
-                        let high_pc = match entry.attr_value(DW_AT_high_pc)? {
-                            Some(AttributeValue::Udata(high_pc)) => high_pc,
-                            _ => continue,
-                        };
-
-                        symbols.insert(name.to_string(), (low_pc, high_pc));
-                    }
-                    DW_TAG_compile_unit => {}
-                    _ => {}
-                }
-            }
-        }
-        Ok(symbols)
     }
 }
 
