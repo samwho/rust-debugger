@@ -5,18 +5,21 @@ use object::{Object, ObjectSection};
 use std::collections::HashMap;
 use std::{borrow, fs::File, path::PathBuf};
 
+#[derive(Debug, Clone)]
 pub struct LineInfo {
     pub path: PathBuf,
     pub line: u64,
     pub column: u64,
 }
 
+#[derive(Debug, Clone)]
 pub struct Symbol {
     pub name: String,
     pub low_pc: u64,
     pub high_pc: u64,
 }
 
+#[derive(Debug, Clone)]
 pub struct DebugInfo {
     symbols: HashMap<String, Symbol>,
     pc_to_line: HashMap<u64, LineInfo>,

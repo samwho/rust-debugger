@@ -7,10 +7,10 @@ pub enum Error {
     NulError(std::ffi::NulError),
     Errno(c_int),
     IntoStringError(std::ffi::IntoStringError),
-    ReadlineError(rustyline::error::ReadlineError),
     ParseIntError(std::num::ParseIntError),
     GimliError(gimli::Error),
     IoError(std::io::Error),
+    MpscRecvError(std::sync::mpsc::RecvError),
 }
 
 impl error::Error for Error {
@@ -20,10 +20,10 @@ impl error::Error for Error {
             Error::NulError(ref e) => Some(e),
             Error::Errno(_) => None,
             Error::IntoStringError(ref e) => Some(e),
-            Error::ReadlineError(ref e) => Some(e),
             Error::ParseIntError(ref e) => Some(e),
             Error::GimliError(ref e) => Some(e),
             Error::IoError(ref e) => Some(e),
+            Error::MpscRecvError(ref e) => Some(e),
         }
     }
 }
@@ -35,10 +35,10 @@ impl fmt::Display for Error {
             Error::NulError(ref e) => e.fmt(f),
             Error::Errno(errno) => write!(f, "errno {}", errno),
             Error::IntoStringError(ref e) => e.fmt(f),
-            Error::ReadlineError(ref e) => e.fmt(f),
             Error::ParseIntError(ref e) => e.fmt(f),
             Error::GimliError(ref e) => e.fmt(f),
             Error::IoError(ref e) => e.fmt(f),
+            Error::MpscRecvError(ref e) => e.fmt(f),
         }
     }
 }
@@ -61,6 +61,12 @@ impl From<gimli::Error> for Error {
     }
 }
 
+impl From<std::sync::mpsc::RecvError> for Error {
+    fn from(e: std::sync::mpsc::RecvError) -> Error {
+        Error::MpscRecvError(e)
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Error {
         Error::IoError(e)
@@ -76,12 +82,6 @@ impl From<std::num::ParseIntError> for Error {
 impl From<std::ffi::NulError> for Error {
     fn from(e: std::ffi::NulError) -> Error {
         Error::NulError(e)
-    }
-}
-
-impl From<rustyline::error::ReadlineError> for Error {
-    fn from(e: rustyline::error::ReadlineError) -> Error {
-        Error::ReadlineError(e)
     }
 }
 

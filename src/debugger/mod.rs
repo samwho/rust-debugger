@@ -10,6 +10,8 @@ use std::fs::File;
 pub struct Subordinate {
     pid: i32,
     registers: Registers,
+    stack: Vec<usize>,
+    instructions: Vec<u8>,
     wait_status: WaitStatus,
     breakpoints: HashMap<usize, usize>,
     debug_info: DebugInfo,
@@ -30,13 +32,18 @@ impl Subordinate {
 
         let debug_info = DebugInfo::new(File::open(&cmd[0])?)?;
 
-        Ok(Subordinate {
+        let mut subordinate = Subordinate {
             pid,
-            wait_status: wait()?,
-            registers: ptrace::getregs(pid)?.into(),
+            wait_status: WaitStatus::Unknwon(0, 0),
+            registers: Registers::default(),
+            stack: Vec::new(),
+            instructions: Vec::new(),
             breakpoints: HashMap::new(),
             debug_info,
-        })
+        };
+
+        subordinate.fetch_state()?;
+        Ok(subordinate)
     }
 
     pub fn step(&mut self) -> Result<()> {
@@ -59,7 +66,7 @@ impl Subordinate {
         ptrace::poke(self.pid, addr, data)
     }
 
-    pub fn read_mem(&self, from: usize, size: usize) -> Result<Vec<u8>> {
+    pub fn read_bytes(&self, from: usize, size: usize) -> Result<Vec<u8>> {
         let mut bytes = Vec::with_capacity(size);
         let wordlen = std::mem::size_of::<usize>();
         for i in 0..(size / wordlen) {
@@ -68,6 +75,15 @@ impl Subordinate {
             }
         }
         Ok(bytes)
+    }
+
+    pub fn read_words(&self, from: usize, size: usize) -> Result<Vec<usize>> {
+        let mut words = Vec::with_capacity(size);
+        let wordlen = std::mem::size_of::<usize>();
+        for i in 0..size {
+            words.push(self.peek(from + wordlen * i)?);
+        }
+        Ok(words)
     }
 
     pub fn breakpoint(&mut self, addr: usize) -> Result<()> {
@@ -85,6 +101,14 @@ impl Subordinate {
         &self.registers
     }
 
+    pub fn instructions(&self) -> &[u8] {
+        &self.instructions
+    }
+
+    pub fn stack(&self) -> &[usize] {
+        &self.stack
+    }
+
     pub fn debug_info(&self) -> &DebugInfo {
         &self.debug_info
     }
@@ -93,13 +117,15 @@ impl Subordinate {
         if let Exited(_, exit_status) = self.wait_status {
             return Some(exit_status);
         }
-        return None;
+        None
     }
 
     fn fetch_state(&mut self) -> Result<()> {
         self.wait_status = wait()?;
         if let Stopped(_, _) = self.wait_status {
             self.registers = ptrace::getregs(self.pid)?.into();
+            self.stack = self.read_words(self.registers.rsp as usize, 16)?;
+            self.instructions = self.read_bytes(self.registers.rip as usize, 64)?;
             self.handle_breakpoint()?;
         };
         Ok(())
