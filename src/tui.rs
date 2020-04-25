@@ -223,11 +223,13 @@ impl Tui {
 
                 let bottom_left_text = [Text::raw(String::from_utf8_lossy(&self.command_output))];
                 let bottom_left_para = Paragraph::new(bottom_left_text.iter())
+                    .wrap(true)
                     .block(block.clone().title("Command output"));
                 f.render_widget(bottom_left_para, bottom_left);
 
                 let bottom_right_text = [Text::raw(String::from_utf8_lossy(&self.program_output))];
                 let bottom_right_para = Paragraph::new(bottom_right_text.iter())
+                    .wrap(true)
                     .block(block.clone().title("Program output"));
                 f.render_widget(bottom_right_para, bottom_right);
 
@@ -256,7 +258,7 @@ impl Tui {
                         if let Err(e) =
                             execute_command(&mut self.subordinate, cmd.split_whitespace().collect())
                         {
-                            write!(&mut self.command_output, "{}", e)?;
+                            writeln!(&mut self.command_output, "{}", e)?;
                         }
                     }
                     Key::Char(c) => {
@@ -358,7 +360,7 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
         ["s"] | ["step"] => subordinate.step()?,
         ["c"] | ["cont"] => subordinate.cont()?,
         ["b", addr] | ["break", addr] => set_breakpoint(subordinate, addr)?,
-        other => println!("unknown command `{:?}`", other),
+        other => return Err(format!("unknown command `{:?}`", other).into()),
     };
 
     Ok(())
