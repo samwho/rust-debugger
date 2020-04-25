@@ -15,19 +15,19 @@ pub struct LineInfo {
 #[derive(Debug, Clone)]
 pub struct Symbol {
     pub name: String,
-    pub low_pc: u64,
-    pub high_pc: u64,
+    pub low_pc: usize,
+    pub high_pc: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct DebugInfo {
     symbols: HashMap<String, Symbol>,
-    pc_to_line: HashMap<u64, LineInfo>,
+    pc_to_line: HashMap<usize, LineInfo>,
 }
 
 impl DebugInfo {
     pub fn new(file: File) -> Result<Self> {
-        let mut pc_to_line: HashMap<u64, LineInfo> = HashMap::new();
+        let mut pc_to_line: HashMap<usize, LineInfo> = HashMap::new();
         let mut symbols: HashMap<String, Symbol> = HashMap::new();
 
         let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
@@ -67,10 +67,6 @@ impl DebugInfo {
         // Iterate over the compilation units.
         let mut iter = dwarf.units();
         while let Some(header) = iter.next()? {
-            println!(
-                "Line number info for unit at <.debug_info+0x{:x}>",
-                header.offset().0
-            );
             let unit = dwarf.unit(header)?;
 
             // Get the line program for the compilation unit.
@@ -84,10 +80,7 @@ impl DebugInfo {
                 // Iterate over the line program rows.
                 let mut rows = program.rows();
                 while let Some((header, row)) = rows.next_row()? {
-                    if row.end_sequence() {
-                        // End of sequence indicates a possible gap in addresses.
-                        println!("{:x} end-sequence", row.address());
-                    } else {
+                    if !row.end_sequence() {
                         // Determine the path. Real applications should cache this for performance.
                         let mut path = PathBuf::new();
                         if let Some(file) = row.file(header) {
@@ -113,7 +106,7 @@ impl DebugInfo {
                             gimli::ColumnType::Column(x) => x,
                         };
 
-                        pc_to_line.insert(row.address(), LineInfo { path, line, column });
+                        pc_to_line.insert(row.address() as usize, LineInfo { path, line, column });
                     }
                 }
             }
@@ -144,8 +137,8 @@ impl DebugInfo {
                             name.to_string(),
                             Symbol {
                                 name: name.to_string(),
-                                low_pc,
-                                high_pc,
+                                low_pc: low_pc as usize,
+                                high_pc: high_pc as usize,
                             },
                         );
                     }
@@ -162,5 +155,14 @@ impl DebugInfo {
 
     pub fn symbols(&self) -> &HashMap<String, Symbol> {
         &self.symbols
+    }
+
+    pub fn symbol_for_pc(&self, pc: usize) -> Option<&Symbol> {
+        for (_, symbol) in &self.symbols {
+            if pc >= symbol.low_pc && pc < (symbol.low_pc + symbol.high_pc) {
+                return Some(symbol);
+            }
+        }
+        None
     }
 }

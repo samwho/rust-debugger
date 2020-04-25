@@ -32,6 +32,7 @@ pub enum Event<I> {
 
 /// A small event handler that wrap termion input and tick events. Each event
 /// type is handled in its own thread and returned to a common `Receiver`
+#[allow(dead_code)]
 pub struct Events {
     rx: mpsc::Receiver<Event<Key>>,
     input_handle: thread::JoinHandle<()>,
@@ -107,6 +108,8 @@ impl Events {
 
 pub struct Tui {
     input: String,
+    program_output: Vec<u8>,
+    command_output: Vec<u8>,
     subordinate: Subordinate,
 }
 
@@ -114,6 +117,8 @@ impl Tui {
     pub fn new(subordinate: Subordinate) -> Self {
         Self {
             input: String::new(),
+            program_output: Vec::new(),
+            command_output: Vec::new(),
             subordinate,
         }
     }
@@ -134,11 +139,19 @@ impl Tui {
             terminal.draw(|mut f| {
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
+                    .constraints(
+                        [
+                            Constraint::Min(1),
+                            Constraint::Length(6),
+                            Constraint::Length(3),
+                        ]
+                        .as_ref(),
+                    )
                     .split(f.size());
 
                 let top = chunks[0];
-                let bottom = chunks[1];
+                let middle = chunks[1];
+                let bottom = chunks[2];
 
                 let top_chunks = Layout::default()
                     .direction(Direction::Horizontal)
@@ -152,29 +165,71 @@ impl Tui {
                     )
                     .split(top);
 
+                let bottom_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                    .split(middle);
+
                 let left = top_chunks[0];
                 let middle = top_chunks[1];
                 let right = top_chunks[2];
+
+                let bottom_left = bottom_chunks[0];
+                let bottom_right = bottom_chunks[1];
 
                 let block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::DarkGray));
 
-                let left_text = [Text::raw(registers(&self.subordinate).unwrap())];
+                let registers_s = match registers(&self.subordinate) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        write!(&mut self.command_output, "{}", e).unwrap();
+                        "".to_owned()
+                    }
+                };
+
+                let left_text = [Text::raw(registers_s)];
                 let left_para =
                     Paragraph::new(left_text.iter()).block(block.clone().title("Registers"));
                 f.render_widget(left_para, left);
 
-                let middle_text = [Text::raw(disassemble(&self.subordinate).unwrap())];
+                let disassembly_s = match disassemble(&self.subordinate) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        write!(&mut self.command_output, "{}", e).unwrap();
+                        "".to_owned()
+                    }
+                };
+
+                let middle_text = [Text::raw(disassembly_s)];
                 let middle_para =
                     Paragraph::new(middle_text.iter()).block(block.clone().title("Disassembly"));
                 f.render_widget(middle_para, middle);
 
-                let right_text = [Text::raw(stack(&self.subordinate).unwrap())];
+                let stack_s = match stack(&self.subordinate) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        write!(&mut self.command_output, "{}", e).unwrap();
+                        "".to_owned()
+                    }
+                };
+
+                let right_text = [Text::raw(stack_s)];
                 let right_para =
                     Paragraph::new(right_text.iter()).block(block.clone().title("Stack"));
                 f.render_widget(right_para, right);
+
+                let bottom_left_text = [Text::raw(String::from_utf8_lossy(&self.command_output))];
+                let bottom_left_para = Paragraph::new(bottom_left_text.iter())
+                    .block(block.clone().title("Command output"));
+                f.render_widget(bottom_left_para, bottom_left);
+
+                let bottom_right_text = [Text::raw(String::from_utf8_lossy(&self.program_output))];
+                let bottom_right_para = Paragraph::new(bottom_right_text.iter())
+                    .block(block.clone().title("Program output"));
+                f.render_widget(bottom_right_para, bottom_right);
 
                 let text = [Text::raw(&self.input)];
                 let input = Paragraph::new(text.iter())
@@ -198,7 +253,11 @@ impl Tui {
                 Event::Input(input) => match input {
                     Key::Char('\n') => {
                         let cmd: String = self.input.drain(..).collect();
-                        execute_command(&mut self.subordinate, cmd.split_whitespace().collect())?;
+                        if let Err(e) =
+                            execute_command(&mut self.subordinate, cmd.split_whitespace().collect())
+                        {
+                            write!(&mut self.command_output, "{}", e)?;
+                        }
                     }
                     Key::Char(c) => {
                         self.input.push(c);
@@ -219,9 +278,17 @@ impl Tui {
 }
 
 fn disassemble(subordinate: &Subordinate) -> Result<String> {
-    let mut decoder = Decoder::new(64, subordinate.instructions(), DecoderOptions::NONE);
     let regs = subordinate.registers();
-    decoder.set_ip(regs.rip);
+    let debug_info = subordinate.debug_info();
+    let symbol = debug_info.symbol_for_pc(regs.rip as usize);
+
+    let (rip, bytes) = match symbol {
+        Some(symbol) => (symbol.low_pc as u64, subordinate.instructions(symbol)?),
+        None => (regs.rip, subordinate.read_bytes(regs.rip as usize, 64)?),
+    };
+
+    let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
+    decoder.set_ip(rip);
 
     let mut formatter = NasmFormatter::new();
     let mut ret: Vec<u8> = Vec::new();
@@ -230,18 +297,23 @@ fn disassemble(subordinate: &Subordinate) -> Result<String> {
 
     while decoder.can_decode() {
         decoder.decode_out(&mut instruction);
-
         buf.clear();
         formatter.format(&instruction, &mut buf);
 
-        write!(ret, "{:016x} ", instruction.ip())?;
-        let start_index = (instruction.ip() - regs.rip) as usize;
-        let instr_bytes = &subordinate.instructions()[start_index..start_index + instruction.len()];
+        if regs.rip == instruction.ip() {
+            write!(ret, "=> ")?;
+        } else {
+            write!(ret, "   ")?;
+        }
+
+        write!(ret, "0x{:x} ", instruction.ip())?;
+        let start_index = (instruction.ip() - rip) as usize;
+        let instr_bytes = &bytes[start_index..start_index + instruction.len()];
         for b in instr_bytes.iter() {
             write!(ret, "{:02x}", b)?;
         }
-        if instr_bytes.len() < 10 {
-            for _ in 0..10 - instr_bytes.len() {
+        if instr_bytes.len() < 7 {
+            for _ in 0..7 - instr_bytes.len() {
                 write!(ret, "  ")?;
             }
         }

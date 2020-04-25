@@ -1,6 +1,6 @@
 mod dwarf;
 
-use crate::debugger::dwarf::DebugInfo;
+use crate::debugger::dwarf::{DebugInfo, Symbol};
 use crate::result::Result;
 use crate::sys::{Fork::*, WaitStatus::*, *};
 use libc::user_regs_struct;
@@ -11,7 +11,6 @@ pub struct Subordinate {
     pid: i32,
     registers: Registers,
     stack: Vec<usize>,
-    instructions: Vec<u8>,
     wait_status: WaitStatus,
     breakpoints: HashMap<usize, usize>,
     debug_info: DebugInfo,
@@ -37,7 +36,6 @@ impl Subordinate {
             wait_status: WaitStatus::Unknwon(0, 0),
             registers: Registers::default(),
             stack: Vec::new(),
-            instructions: Vec::new(),
             breakpoints: HashMap::new(),
             debug_info,
         };
@@ -101,8 +99,8 @@ impl Subordinate {
         &self.registers
     }
 
-    pub fn instructions(&self) -> &[u8] {
-        &self.instructions
+    pub fn instructions(&self, symbol: &Symbol) -> Result<Vec<u8>> {
+        Ok(self.read_bytes(symbol.low_pc as usize, symbol.high_pc as usize)?)
     }
 
     pub fn stack(&self) -> &[usize] {
@@ -113,19 +111,11 @@ impl Subordinate {
         &self.debug_info
     }
 
-    pub fn exit_status(&self) -> Option<i32> {
-        if let Exited(_, exit_status) = self.wait_status {
-            return Some(exit_status);
-        }
-        None
-    }
-
     fn fetch_state(&mut self) -> Result<()> {
         self.wait_status = wait()?;
         if let Stopped(_, _) = self.wait_status {
             self.registers = ptrace::getregs(self.pid)?.into();
             self.stack = self.read_words(self.registers.rsp as usize, 16)?;
-            self.instructions = self.read_bytes(self.registers.rip as usize, 64)?;
             self.handle_breakpoint()?;
         };
         Ok(())
