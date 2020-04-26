@@ -165,4 +165,13 @@ impl DebugInfo {
         }
         None
     }
+
+    pub fn symbol(&self, name: &str) -> Option<&Symbol> {
+        for (_, symbol) in &self.symbols {
+            if symbol.name == name {
+                return Some(symbol);
+            }
+        }
+        None
+    }
 }

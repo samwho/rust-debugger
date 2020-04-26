@@ -11,6 +11,7 @@ pub enum Error {
     GimliError(gimli::Error),
     IoError(std::io::Error),
     MpscRecvError(std::sync::mpsc::RecvError),
+    RustylineError(rustyline::error::ReadlineError),
 }
 
 impl error::Error for Error {
@@ -24,6 +25,7 @@ impl error::Error for Error {
             Error::GimliError(ref e) => Some(e),
             Error::IoError(ref e) => Some(e),
             Error::MpscRecvError(ref e) => Some(e),
+            Error::RustylineError(ref e) => Some(e),
         }
     }
 }
@@ -39,6 +41,7 @@ impl fmt::Display for Error {
             Error::GimliError(ref e) => e.fmt(f),
             Error::IoError(ref e) => e.fmt(f),
             Error::MpscRecvError(ref e) => e.fmt(f),
+            Error::RustylineError(ref e) => e.fmt(f),
         }
     }
 }
@@ -58,6 +61,12 @@ impl From<String> for Error {
 impl From<gimli::Error> for Error {
     fn from(e: gimli::Error) -> Error {
         Error::GimliError(e)
+    }
+}
+
+impl From<rustyline::error::ReadlineError> for Error {
+    fn from(e: rustyline::error::ReadlineError) -> Error {
+        Error::RustylineError(e)
     }
 }
 

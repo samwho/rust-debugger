@@ -1,14 +1,16 @@
 #![allow(non_upper_case_globals)]
 
+mod cli;
 mod debugger;
 mod error;
 mod result;
 mod sys;
-mod tui;
+// mod tui;
 
 #[macro_use]
 extern crate log;
 
+use crate::cli::Cli;
 use crate::debugger::Subordinate;
 use crate::error::Error;
 use crate::result::Result;
@@ -37,6 +39,7 @@ fn main() {
 
 fn app() -> Result<()> {
     let subordinate = Subordinate::spawn(args().skip(1).collect())?;
-    let mut t = tui::Tui::new(subordinate);
-    t.start()
+    let mut cli = Cli::new(subordinate);
+    cli.start()?;
+    Ok(())
 }
