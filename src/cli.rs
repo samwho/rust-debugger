@@ -58,6 +58,28 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
                 }
             };
         }
+        ["l", sym] | ["list", sym] => {
+            match subordinate.debug_info().symbol(sym) {
+                Some(symbol) => match subordinate.debug_info().line_info(symbol.low_pc) {
+                    Some(line_info) => match subordinate.debug_info().lines(&line_info.path) {
+                        Some(lines) => {
+                            for line in lines {
+                                println!("{}", line);
+                            }
+                        }
+                        None => {
+                            println!("couldn't find source code for symbol {}", sym);
+                        }
+                    },
+                    None => {
+                        println!("couldn't find source code for symbol {}", sym);
+                    }
+                },
+                None => {
+                    println!("unknwon symbol {}", sym);
+                }
+            };
+        }
         ["syms"] | ["symbols"] => print_symbols(subordinate)?,
         ["b", addr] | ["break", addr] => set_breakpoint(subordinate, addr)?,
         other => println!("unknown command `{:?}`", other),

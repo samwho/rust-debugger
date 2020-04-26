@@ -3,7 +3,12 @@ use gimli::constants::{DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogra
 use gimli::read::AttributeValue;
 use object::{Object, ObjectSection};
 use std::collections::HashMap;
-use std::{borrow, fs::File, path::PathBuf};
+use std::{
+    borrow,
+    fs::File,
+    io::{BufRead, BufReader},
+    path::PathBuf,
+};
 
 #[derive(Debug, Clone)]
 pub struct LineInfo {
@@ -23,12 +28,14 @@ pub struct Symbol {
 pub struct DebugInfo {
     symbols: HashMap<String, Symbol>,
     pc_to_line: HashMap<usize, LineInfo>,
+    source_code: HashMap<PathBuf, Vec<String>>,
 }
 
 impl DebugInfo {
     pub fn new(file: File) -> Result<Self> {
         let mut pc_to_line: HashMap<usize, LineInfo> = HashMap::new();
         let mut symbols: HashMap<String, Symbol> = HashMap::new();
+        let mut source_code: HashMap<PathBuf, Vec<String>> = HashMap::new();
 
         let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
         let object = object::File::parse(&*mmap).unwrap();
@@ -98,6 +105,14 @@ impl DebugInfo {
                             );
                         }
 
+                        if !source_code.contains_key(&path) {
+                            let mut lines: Vec<String> = Vec::new();
+                            for line in BufReader::new(File::open(&path)?).lines() {
+                                lines.push(line?);
+                            }
+                            source_code.insert(path.clone(), lines);
+                        }
+
                         // Determine line/column. DWARF line/column is never 0, so we use that
                         // but other applications may want to display this differently.
                         let line = row.line().unwrap_or(0);
@@ -150,6 +165,7 @@ impl DebugInfo {
         Ok(DebugInfo {
             pc_to_line,
             symbols,
+            source_code,
         })
     }
 
@@ -164,6 +180,14 @@ impl DebugInfo {
             }
         }
         None
+    }
+
+    pub fn line_info(&self, rip: usize) -> Option<&LineInfo> {
+        self.pc_to_line.get(&rip)
+    }
+
+    pub fn lines(&self, path: &PathBuf) -> Option<&Vec<String>> {
+        self.source_code.get(path)
     }
 
     pub fn symbol(&self, name: &str) -> Option<&Symbol> {
