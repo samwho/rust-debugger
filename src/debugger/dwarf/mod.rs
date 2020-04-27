@@ -87,42 +87,46 @@ impl DebugInfo {
                 // Iterate over the line program rows.
                 let mut rows = program.rows();
                 while let Some((header, row)) = rows.next_row()? {
-                    if !row.end_sequence() {
-                        // Determine the path. Real applications should cache this for performance.
-                        let mut path = PathBuf::new();
-                        if let Some(file) = row.file(header) {
-                            path = comp_dir.clone();
-                            if let Some(dir) = file.directory(header) {
-                                path.push(
-                                    dwarf.attr_string(&unit, dir)?.to_string_lossy().as_ref(),
-                                );
-                            }
-                            path.push(
-                                dwarf
-                                    .attr_string(&unit, file.path_name())?
-                                    .to_string_lossy()
-                                    .as_ref(),
-                            );
-                        }
-
-                        if !source_code.contains_key(&path) {
-                            let mut lines: Vec<String> = Vec::new();
-                            for line in BufReader::new(File::open(&path)?).lines() {
-                                lines.push(line?);
-                            }
-                            source_code.insert(path.clone(), lines);
-                        }
-
-                        // Determine line/column. DWARF line/column is never 0, so we use that
-                        // but other applications may want to display this differently.
-                        let line = row.line().unwrap_or(0);
-                        let column = match row.column() {
-                            gimli::ColumnType::LeftEdge => 0,
-                            gimli::ColumnType::Column(x) => x,
-                        };
-
-                        pc_to_line.insert(row.address() as usize, LineInfo { path, line, column });
+                    if row.end_sequence() {
+                        continue;
                     }
+
+                    // Determine the path. Real applications should cache this for performance.
+                    let mut path = PathBuf::new();
+                    if let Some(file) = row.file(header) {
+                        path = comp_dir.clone();
+                        if let Some(dir) = file.directory(header) {
+                            path.push(dwarf.attr_string(&unit, dir)?.to_string_lossy().as_ref());
+                        }
+                        path.push(
+                            dwarf
+                                .attr_string(&unit, file.path_name())?
+                                .to_string_lossy()
+                                .as_ref(),
+                        );
+                    }
+
+                    if !path.exists() {
+                        continue;
+                    }
+
+                    if !source_code.contains_key(&path) {
+                        let mut lines: Vec<String> = Vec::new();
+                        for line in BufReader::new(File::open(&path)?).lines() {
+                            lines.push(line?);
+                        }
+                        source_code.insert(path.clone(), lines);
+                    }
+
+                    // Determine line/column. DWARF line/column is never 0, so we use that
+                    // but other applications may want to display this differently.
+                    let line = row.line().unwrap_or(0);
+                    let column = match row.column() {
+                        gimli::ColumnType::LeftEdge => 0,
+                        gimli::ColumnType::Column(x) => x,
+                    };
+
+                    pc_to_line.insert(row.address() as usize, LineInfo { path, line, column });
                 }
             }
 

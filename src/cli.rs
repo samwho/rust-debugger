@@ -37,7 +37,7 @@ impl Cli {
 fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> {
     match cmd.as_slice() {
         ["r"] | ["regs"] => print_registers(subordinate)?,
-        ["s"] | ["step"] => subordinate.step()?,
+        ["si"] | ["stepi"] => subordinate.step()?,
         ["c"] | ["cont"] => subordinate.cont()?,
         ["d"] | ["disas"] => {
             let rip = subordinate.registers().rip;
@@ -48,6 +48,7 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
         ["d", sym] | ["disas", sym] => {
             match subordinate.debug_info().symbol(sym) {
                 Some(symbol) => {
+                    info!("found symbol: {:?}", symbol);
                     let rip = symbol.low_pc as u64;
                     let bytes = subordinate.instructions(symbol)?;
                     let disassembly = Disassembler::new().disassemble(rip, &bytes)?;
@@ -59,26 +60,17 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
             };
         }
         ["l", sym] | ["list", sym] => {
-            match subordinate.debug_info().symbol(sym) {
-                Some(symbol) => match subordinate.debug_info().line_info(symbol.low_pc) {
-                    Some(line_info) => match subordinate.debug_info().lines(&line_info.path) {
-                        Some(lines) => {
-                            for line in lines {
-                                println!("{}", line);
-                            }
-                        }
-                        None => {
-                            println!("couldn't find source code for symbol {}", sym);
-                        }
-                    },
-                    None => {
-                        println!("couldn't find source code for symbol {}", sym);
-                    }
-                },
-                None => {
-                    println!("unknwon symbol {}", sym);
-                }
-            };
+            let debug_info = subordinate.debug_info();
+            let lines = debug_info
+                .symbol(sym)
+                .and_then(|symbol| debug_info.line_info(symbol.low_pc))
+                .and_then(|line_info| debug_info.lines(&line_info.path));
+
+            if let Some(lines) = lines {
+                lines.iter().for_each(|line| println!("{}", line));
+            } else {
+                println!("couldn't find source code for symbol {}", sym);
+            }
         }
         ["syms"] | ["symbols"] => print_symbols(subordinate)?,
         ["b", addr] | ["break", addr] => set_breakpoint(subordinate, addr)?,
