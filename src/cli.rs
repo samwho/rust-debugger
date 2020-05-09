@@ -119,7 +119,7 @@ fn print_registers(subordinate: &mut Subordinate) -> Result<()> {
 fn print_register(subordinate: &mut Subordinate, name: &str) -> Result<()> {
     match subordinate.registers().get(name) {
         Some(value) => {
-            println!("{} {:x}", name, value);
+            println!("{} 0x{:x}", name, value);
         }
         None => {
             println!("couldn't find register with name \"{}\"", name);
