@@ -36,7 +36,8 @@ impl Cli {
 
 fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> {
     match cmd.as_slice() {
-        ["r"] | ["regs"] => print_registers(subordinate)?,
+        ["regs"] | ["registers"] => print_registers(subordinate)?,
+        ["r", name] | ["reg", name] | ["register", name] => print_register(subordinate, name)?,
         ["si"] | ["stepi"] => subordinate.step()?,
         ["c"] | ["cont"] => subordinate.cont()?,
         ["d"] | ["disas"] => {
@@ -112,6 +113,18 @@ fn print_registers(subordinate: &mut Subordinate) -> Result<()> {
     println!("rdi: 0x{:x}", regs.rdi);
     println!("rsi: 0x{:x}", regs.rsi);
 
+    Ok(())
+}
+
+fn print_register(subordinate: &mut Subordinate, name: &str) -> Result<()> {
+    match subordinate.registers().get(name) {
+        Some(value) => {
+            println!("{} {:x}", name, value);
+        }
+        None => {
+            println!("couldn't find register with name \"{}\"", name);
+        }
+    }
     Ok(())
 }
 

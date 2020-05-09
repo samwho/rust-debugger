@@ -98,3 +98,38 @@ impl From<Registers> for user_regs_struct {
         }
     }
 }
+
+impl Registers {
+    pub fn get(&self, name: &str) -> Option<u64> {
+        match name {
+            "r15" => Some(self.r15),
+            "r14" => Some(self.r14),
+            "r13" => Some(self.r13),
+            "r12" => Some(self.r12),
+            "rbp" => Some(self.rbp),
+            "rbx" => Some(self.rbx),
+            "r11" => Some(self.r11),
+            "r10" => Some(self.r10),
+            "r9" => Some(self.r9),
+            "r8" => Some(self.r8),
+            "rax" => Some(self.rax),
+            "rcx" => Some(self.rcx),
+            "rdx" => Some(self.rdx),
+            "rsi" => Some(self.rsi),
+            "rdi" => Some(self.rdi),
+            "orig_rax" => Some(self.orig_rax),
+            "rip" => Some(self.rip),
+            "cs" => Some(self.cs),
+            "eflags" => Some(self.eflags),
+            "rsp" => Some(self.rsp),
+            "ss" => Some(self.ss),
+            "fs_base" => Some(self.fs_base),
+            "gs_base" => Some(self.gs_base),
+            "ds" => Some(self.ds),
+            "es" => Some(self.es),
+            "fs" => Some(self.fs),
+            "gs" => Some(self.gs),
+            _ => None,
+        }
+    }
+}
