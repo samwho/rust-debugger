@@ -73,6 +73,7 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
             }
         }
         ["syms"] | ["symbols"] => print_symbols(subordinate)?,
+        ["sym", name] | ["symbol", name] => print_symbol(subordinate, name)?,
         ["b", addr] | ["break", addr] => set_breakpoint(subordinate, addr)?,
         other => println!("unknown command `{:?}`", other),
     };
@@ -117,6 +118,18 @@ fn print_registers(subordinate: &mut Subordinate) -> Result<()> {
 fn print_symbols(subordinate: &mut Subordinate) -> Result<()> {
     for (name, symbol) in subordinate.debug_info().symbols().into_iter() {
         println!("0x{:x} {}", symbol.low_pc, name);
+    }
+    Ok(())
+}
+
+fn print_symbol(subordinate: &mut Subordinate, name: &str) -> Result<()> {
+    match subordinate.debug_info().symbols().get(name) {
+        Some(symbol) => {
+            println!("0x{:x} {}", symbol.low_pc, symbol.name);
+        }
+        None => {
+            println!("couldn't find symbol with name \"{}\"", name);
+        }
     }
     Ok(())
 }
