@@ -14,7 +14,7 @@ use crate::cli::Cli;
 use crate::debugger::Subordinate;
 use crate::error::Error;
 use crate::result::Result;
-use crate::sys::strerror;
+use crate::sys::{disable_aslr, strerror};
 use human_panic::setup_panic;
 use std::env::args;
 use std::process::exit;
@@ -38,6 +38,7 @@ fn main() {
 }
 
 fn app() -> Result<()> {
+    disable_aslr()?;
     let subordinate = Subordinate::spawn(args().skip(1).collect())?;
     let mut cli = Cli::new(subordinate);
     cli.start()?;

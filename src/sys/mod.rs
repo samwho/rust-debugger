@@ -3,13 +3,16 @@ pub mod ptrace;
 use crate::error::Error;
 use crate::result::Result;
 use libc::{
-    __errno_location, c_int, dup2 as libcdup2, execvp as libcexecvp, fork as libcfork, pid_t,
-    pipe as libcpipe, strerror as libcstrerror, wait as libcwait, WEXITSTATUS, WIFCONTINUED,
-    WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG,
+    __errno_location, c_int, dup2 as libcdup2, execvp as libcexecvp, fork as libcfork,
+    personality as libcpersonality, pid_t, pipe as libcpipe, strerror as libcstrerror,
+    wait as libcwait, WEXITSTATUS, WIFCONTINUED, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG,
+    WTERMSIG,
 };
 use std::ffi::CString;
 use std::fs::File;
 use std::os::unix::io::{FromRawFd, RawFd};
+
+const ADDR_NO_RANDOMIZE: u64 = 0x40000;
 
 pub enum Fork {
     Parent(pid_t),
@@ -103,4 +106,13 @@ pub fn pipe() -> Result<(File, File)> {
 pub fn dup2(from: RawFd, to: RawFd) -> Result<()> {
     errwrap(|| unsafe { libcdup2(from, to) })?;
     Ok(())
+}
+
+pub fn personality(persona: u64) -> Result<()> {
+    errwrap(|| unsafe { libcpersonality(persona) })?;
+    Ok(())
+}
+
+pub fn disable_aslr() -> Result<()> {
+    personality(ADDR_NO_RANDOMIZE)
 }
