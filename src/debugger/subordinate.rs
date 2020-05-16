@@ -1,9 +1,14 @@
-use crate::debugger::{DebugInfo, Registers, Symbol};
+use crate::debugger::{
+    auxv::{self, Entry::*},
+    DebugInfo, Registers, Symbol,
+};
 
 use crate::result::Result;
 use crate::sys::{Fork::*, WaitStatus::*, *};
 use std::collections::HashMap;
 use std::fs::File;
+
+use elf;
 
 pub struct Subordinate {
     pid: i32,
@@ -12,10 +17,15 @@ pub struct Subordinate {
     wait_status: WaitStatus,
     breakpoints: HashMap<usize, usize>,
     debug_info: DebugInfo,
+    auxv: Vec<auxv::Entry>,
 }
 
 impl Subordinate {
     pub fn spawn(cmd: Vec<String>) -> Result<Self> {
+        if cmd.len() == 0 {
+            return Err("empty command given".into());
+        }
+
         info!("spawning with cmd: {:?}", cmd);
 
         let pid = match fork()? {
@@ -27,6 +37,7 @@ impl Subordinate {
             }
         };
 
+        let elf = elf::File::open_path(&cmd[0])?;
         let debug_info = DebugInfo::new(File::open(&cmd[0])?)?;
 
         let mut subordinate = Subordinate {
@@ -36,10 +47,25 @@ impl Subordinate {
             stack: Vec::new(),
             breakpoints: HashMap::new(),
             debug_info,
+            auxv: Vec::new(),
         };
 
-        subordinate.fetch_aux_vector()?;
         subordinate.fetch_state()?;
+
+        let auxv = auxv::read(&subordinate)?;
+        for entry in &auxv {
+            match entry {
+                EntryAddr(addr) => {
+                    let amount = *addr - elf.ehdr.entry as usize;
+                    subordinate.shift_symbols(amount);
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        subordinate.auxv = auxv;
+
         Ok(subordinate)
     }
 
@@ -120,46 +146,8 @@ impl Subordinate {
         &self.debug_info
     }
 
-    fn fetch_aux_vector(&mut self) -> Result<()> {
-        let regs: Registers = ptrace::getregs(self.pid)?.into();
-
-        let mut addr = (regs.rsp + 8) as usize;
-
-        for _ in 0..2 {
-            loop {
-                let mut buf = [0 as u8; 8];
-                let bytes = self.read_bytes(addr, 8)?;
-                buf.clone_from_slice(&bytes[0..8]);
-                let val = usize::from_le_bytes(buf);
-                addr += 8;
-                if val == 0 {
-                    break;
-                }
-            }
-        }
-
-        loop {
-            let mut type_buf = [0 as u8; 8];
-            let mut val_buf = [0 as u8; 8];
-
-            let type_bytes = self.read_bytes(addr, 8)?;
-            type_buf.clone_from_slice(&type_bytes[0..8]);
-            let aux_type = u64::from_le_bytes(type_buf);
-
-            let val_bytes = self.read_bytes(addr + 8, 8)?;
-            val_buf.clone_from_slice(&val_bytes[0..8]);
-
-            let aux_val = u64::from_le_bytes(val_buf);
-
-            println!("aux type: {}, aux val: {:x}", aux_type, aux_val);
-
-            addr += 16;
-            if aux_type == 0 {
-                break;
-            }
-        }
-
-        Ok(())
+    fn shift_symbols(&mut self, amount: usize) {
+        self.debug_info.shift_symbols(amount)
     }
 
     fn fetch_state(&mut self) -> Result<()> {

@@ -12,6 +12,7 @@ pub enum Error {
     IoError(std::io::Error),
     MpscRecvError(std::sync::mpsc::RecvError),
     RustylineError(rustyline::error::ReadlineError),
+    ElfParseError(elf::ParseError),
 }
 
 impl error::Error for Error {
@@ -26,6 +27,7 @@ impl error::Error for Error {
             Error::IoError(ref e) => Some(e),
             Error::MpscRecvError(ref e) => Some(e),
             Error::RustylineError(ref e) => Some(e),
+            Error::ElfParseError(_) => None, // TODO: Figure this out
         }
     }
 }
@@ -42,6 +44,7 @@ impl fmt::Display for Error {
             Error::IoError(ref e) => e.fmt(f),
             Error::MpscRecvError(ref e) => e.fmt(f),
             Error::RustylineError(ref e) => e.fmt(f),
+            Error::ElfParseError(ref e) => write!(f, "elf parse error: {:?}", e),
         }
     }
 }
@@ -55,6 +58,12 @@ impl From<&str> for Error {
 impl From<String> for Error {
     fn from(s: String) -> Error {
         Error::String(s)
+    }
+}
+
+impl From<elf::ParseError> for Error {
+    fn from(e: elf::ParseError) -> Error {
+        Error::ElfParseError(e)
     }
 }
 

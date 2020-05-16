@@ -1,14 +1,11 @@
 use crate::result::Result;
-use gimli::constants::{DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram};
+use gimli::constants::{
+    DW_AT_external, DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram,
+};
 use gimli::read::AttributeValue;
 use object::{Object, ObjectSection};
 use std::collections::HashMap;
-use std::{
-    borrow,
-    fs::File,
-    io::{BufRead, BufReader},
-    path::PathBuf,
-};
+use std::{borrow, fs::File, path::PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct LineInfo {
@@ -22,6 +19,7 @@ pub struct Symbol {
     pub name: String,
     pub low_pc: usize,
     pub high_pc: usize,
+    pub external: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -106,17 +104,17 @@ impl DebugInfo {
                         );
                     }
 
-                    if !path.exists() {
-                        continue;
-                    }
+                    // if !path.exists() {
+                    //     continue;
+                    // }
 
-                    if !source_code.contains_key(&path) {
-                        let mut lines: Vec<String> = Vec::new();
-                        for line in BufReader::new(File::open(&path)?).lines() {
-                            lines.push(line?);
-                        }
-                        source_code.insert(path.clone(), lines);
-                    }
+                    // if !source_code.contains_key(&path) {
+                    //     let lines: Vec<String> = Vec::new();
+                    //     for line in BufReader::new(File::open(&path)?).lines() {
+                    //         lines.push(line?);
+                    //     }
+                    //     source_code.insert(path.clone(), lines);
+                    // }
 
                     // Determine line/column. DWARF line/column is never 0, so we use that
                     // but other applications may want to display this differently.
@@ -138,26 +136,33 @@ impl DebugInfo {
                             Some(name) => name
                                 .string_value(&dwarf.debug_str)
                                 .map(|ds| ds.to_string())
-                                .unwrap()?,
+                                .unwrap()?
+                                .to_string(),
                             None => continue,
                         };
 
                         let low_pc = match entry.attr_value(DW_AT_low_pc)? {
-                            Some(AttributeValue::Addr(low_pc)) => low_pc,
+                            Some(AttributeValue::Addr(low_pc)) => low_pc as usize,
                             _ => continue,
                         };
 
                         let high_pc = match entry.attr_value(DW_AT_high_pc)? {
-                            Some(AttributeValue::Udata(high_pc)) => high_pc,
+                            Some(AttributeValue::Udata(high_pc)) => high_pc as usize,
+                            _ => continue,
+                        };
+
+                        let external = match entry.attr_value(DW_AT_external)? {
+                            Some(AttributeValue::Flag(external)) => external,
                             _ => continue,
                         };
 
                         symbols.insert(
-                            name.to_string(),
+                            name.clone(),
                             Symbol {
-                                name: name.to_string(),
-                                low_pc: low_pc as usize,
-                                high_pc: high_pc as usize,
+                                name,
+                                low_pc,
+                                high_pc,
+                                external,
                             },
                         );
                     }
@@ -171,6 +176,17 @@ impl DebugInfo {
             symbols,
             source_code,
         })
+    }
+
+    pub fn shift_symbols(&mut self, amount: usize) {
+        for (_, symbol) in &mut self.symbols {
+            // I only want to shift symbols in the debuggee
+            // binary. This check feels insufficient, need to
+            // figure out something more robust.
+            if symbol.low_pc > 0 {
+                symbol.low_pc += amount;
+            }
+        }
     }
 
     pub fn symbols(&self) -> &HashMap<String, Symbol> {

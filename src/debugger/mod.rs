@@ -1,3 +1,4 @@
+mod auxv;
 mod disassembler;
 mod dwarf;
 mod registers;
