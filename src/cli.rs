@@ -47,10 +47,9 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
             println!("{}", disassembly);
         }
         ["d", sym] | ["disas", sym] => {
-            match subordinate.debug_info().symbol(sym) {
+            match subordinate.symbol(sym) {
                 Some(symbol) => {
-                    info!("found symbol: {:?}", symbol);
-                    let rip = symbol.low_pc as u64;
+                    let rip = symbol.value;
                     let bytes = subordinate.instructions(symbol)?;
                     let disassembly = Disassembler::new().disassemble(rip, &bytes)?;
                     println!("{}", disassembly);
@@ -62,9 +61,9 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
         }
         ["l", sym] | ["list", sym] => {
             let debug_info = subordinate.debug_info();
-            let lines = debug_info
+            let lines = subordinate
                 .symbol(sym)
-                .and_then(|symbol| debug_info.line_info(symbol.low_pc))
+                .and_then(|symbol| debug_info.line_info(symbol.value as usize))
                 .and_then(|line_info| debug_info.lines(&line_info.path));
 
             if let Some(lines) = lines {
@@ -83,14 +82,15 @@ fn execute_command(subordinate: &mut Subordinate, cmd: Vec<&str>) -> Result<()> 
 }
 
 fn set_breakpoint(subordinate: &mut Subordinate, addr: &str) -> Result<()> {
-    if let Ok(addr) = usize::from_str_radix(addr, 16) {
-        return subordinate.breakpoint(addr);
+    if let Some(hex) = addr.strip_prefix("0x") {
+        if let Ok(addr) = usize::from_str_radix(hex, 16) {
+            return subordinate.breakpoint(addr);
+        }
     }
 
-    let symbols = subordinate.debug_info().symbols();
-    let fetch = symbols.get(addr).map(|t| t.to_owned());
-    if let Some(symbol) = fetch {
-        return subordinate.breakpoint(symbol.low_pc as usize);
+    let name = addr;
+    if let Some(symbol) = subordinate.symbol(name).map(|s| s.to_owned()) {
+        return subordinate.breakpoint(symbol.value as usize);
     }
 
     Err(format!(
@@ -129,20 +129,23 @@ fn print_register(subordinate: &mut Subordinate, name: &str) -> Result<()> {
 }
 
 fn print_symbols(subordinate: &mut Subordinate) -> Result<()> {
-    for (name, symbol) in subordinate.debug_info().symbols().into_iter() {
-        println!("0x{:x} {}", symbol.low_pc, name);
+    for symbol in subordinate.symbols().into_iter() {
+        if symbol.symtype != elf::types::STT_FUNC {
+            continue;
+        }
+        println!("0x{:x} {}", symbol.value, symbol.name);
     }
     Ok(())
 }
 
 fn print_symbol(subordinate: &mut Subordinate, name: &str) -> Result<()> {
-    match subordinate.debug_info().symbols().get(name) {
-        Some(symbol) => {
-            println!("0x{:x} {}", symbol.low_pc, symbol.name);
+    for symbol in subordinate.symbols() {
+        if symbol.name != name {
+            continue;
         }
-        None => {
-            println!("couldn't find symbol with name \"{}\"", name);
-        }
+        println!("0x{:x} {}", symbol.value, symbol.name);
+        return Ok(());
     }
+    println!("couldn't find symbol with name \"{}\"", name);
     Ok(())
 }

@@ -1,4 +1,5 @@
 #![allow(non_upper_case_globals)]
+#![feature(str_strip)]
 
 mod cli;
 mod debugger;

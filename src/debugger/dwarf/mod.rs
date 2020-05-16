@@ -1,8 +1,4 @@
 use crate::result::Result;
-use gimli::constants::{
-    DW_AT_external, DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram,
-};
-use gimli::read::AttributeValue;
 use object::{Object, ObjectSection};
 use std::collections::HashMap;
 use std::{borrow, fs::File, path::PathBuf};
@@ -15,16 +11,7 @@ pub struct LineInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct Symbol {
-    pub name: String,
-    pub low_pc: usize,
-    pub high_pc: usize,
-    pub external: bool,
-}
-
-#[derive(Debug, Clone)]
 pub struct DebugInfo {
-    symbols: HashMap<String, Symbol>,
     pc_to_line: HashMap<usize, LineInfo>,
     source_code: HashMap<PathBuf, Vec<String>>,
 }
@@ -32,7 +19,6 @@ pub struct DebugInfo {
 impl DebugInfo {
     pub fn new(file: File) -> Result<Self> {
         let mut pc_to_line: HashMap<usize, LineInfo> = HashMap::new();
-        let mut symbols: HashMap<String, Symbol> = HashMap::new();
         let mut source_code: HashMap<PathBuf, Vec<String>> = HashMap::new();
 
         let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
@@ -127,79 +113,12 @@ impl DebugInfo {
                     pc_to_line.insert(row.address() as usize, LineInfo { path, line, column });
                 }
             }
-
-            let mut entries = unit.entries();
-            while let Some((_, entry)) = entries.next_dfs()? {
-                match entry.tag() {
-                    DW_TAG_subprogram => {
-                        let name = match entry.attr(DW_AT_name)? {
-                            Some(name) => name
-                                .string_value(&dwarf.debug_str)
-                                .map(|ds| ds.to_string())
-                                .unwrap()?
-                                .to_string(),
-                            None => continue,
-                        };
-
-                        let low_pc = match entry.attr_value(DW_AT_low_pc)? {
-                            Some(AttributeValue::Addr(low_pc)) => low_pc as usize,
-                            _ => continue,
-                        };
-
-                        let high_pc = match entry.attr_value(DW_AT_high_pc)? {
-                            Some(AttributeValue::Udata(high_pc)) => high_pc as usize,
-                            _ => continue,
-                        };
-
-                        let external = match entry.attr_value(DW_AT_external)? {
-                            Some(AttributeValue::Flag(external)) => external,
-                            _ => continue,
-                        };
-
-                        symbols.insert(
-                            name.clone(),
-                            Symbol {
-                                name,
-                                low_pc,
-                                high_pc,
-                                external,
-                            },
-                        );
-                    }
-                    _ => {}
-                }
-            }
         }
 
         Ok(DebugInfo {
             pc_to_line,
-            symbols,
             source_code,
         })
-    }
-
-    pub fn shift_symbols(&mut self, amount: usize) {
-        for (_, symbol) in &mut self.symbols {
-            // I only want to shift symbols in the debuggee
-            // binary. This check feels insufficient, need to
-            // figure out something more robust.
-            if symbol.low_pc > 0 {
-                symbol.low_pc += amount;
-            }
-        }
-    }
-
-    pub fn symbols(&self) -> &HashMap<String, Symbol> {
-        &self.symbols
-    }
-
-    pub fn symbol_for_pc(&self, pc: usize) -> Option<&Symbol> {
-        for (_, symbol) in &self.symbols {
-            if pc >= symbol.low_pc && pc < (symbol.low_pc + symbol.high_pc) {
-                return Some(symbol);
-            }
-        }
-        None
     }
 
     pub fn line_info(&self, rip: usize) -> Option<&LineInfo> {
@@ -208,14 +127,5 @@ impl DebugInfo {
 
     pub fn lines(&self, path: &PathBuf) -> Option<&Vec<String>> {
         self.source_code.get(path)
-    }
-
-    pub fn symbol(&self, name: &str) -> Option<&Symbol> {
-        for (_, symbol) in &self.symbols {
-            if symbol.name == name {
-                return Some(symbol);
-            }
-        }
-        None
     }
 }

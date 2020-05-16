@@ -1,6 +1,6 @@
 use crate::debugger::{
     auxv::{self, Entry::*},
-    DebugInfo, Registers, Symbol,
+    DebugInfo, Registers,
 };
 
 use crate::result::Result;
@@ -18,6 +18,7 @@ pub struct Subordinate {
     breakpoints: HashMap<usize, usize>,
     debug_info: DebugInfo,
     auxv: Vec<auxv::Entry>,
+    symbols: Vec<elf::types::Symbol>,
 }
 
 impl Subordinate {
@@ -40,6 +41,11 @@ impl Subordinate {
         let elf = elf::File::open_path(&cmd[0])?;
         let debug_info = DebugInfo::new(File::open(&cmd[0])?)?;
 
+        let mut symbols: Vec<elf::types::Symbol> = Vec::new();
+        if let Some(section) = elf.get_section(".symtab") {
+            symbols = elf.get_symbols(section)?;
+        }
+
         let mut subordinate = Subordinate {
             pid,
             wait_status: WaitStatus::Unknwon(0, 0),
@@ -48,6 +54,7 @@ impl Subordinate {
             breakpoints: HashMap::new(),
             debug_info,
             auxv: Vec::new(),
+            symbols,
         };
 
         subordinate.fetch_state()?;
@@ -56,7 +63,7 @@ impl Subordinate {
         for entry in &auxv {
             match entry {
                 EntryAddr(addr) => {
-                    let amount = *addr - elf.ehdr.entry as usize;
+                    let amount = *addr as u64 - elf.ehdr.entry;
                     subordinate.shift_symbols(amount);
                     break;
                 }
@@ -134,8 +141,8 @@ impl Subordinate {
         &self.registers
     }
 
-    pub fn instructions(&self, symbol: &Symbol) -> Result<Vec<u8>> {
-        Ok(self.read_bytes(symbol.low_pc as usize, symbol.high_pc as usize)?)
+    pub fn instructions(&self, symbol: &elf::types::Symbol) -> Result<Vec<u8>> {
+        Ok(self.read_bytes(symbol.value as usize, symbol.size as usize)?)
     }
 
     pub fn stack(&self) -> &[usize] {
@@ -146,8 +153,26 @@ impl Subordinate {
         &self.debug_info
     }
 
-    fn shift_symbols(&mut self, amount: usize) {
-        self.debug_info.shift_symbols(amount)
+    pub fn symbols(&self) -> &Vec<elf::types::Symbol> {
+        &self.symbols
+    }
+
+    pub fn symbol(&self, name: &str) -> Option<&elf::types::Symbol> {
+        for symbol in &self.symbols {
+            if symbol.name == name {
+                return Some(symbol);
+            }
+        }
+        None
+    }
+
+    fn shift_symbols(&mut self, amount: u64) {
+        for symbol in &mut self.symbols {
+            if symbol.bind == elf::types::STB_WEAK {
+                continue;
+            }
+            symbol.value += amount;
+        }
     }
 
     fn fetch_state(&mut self) -> Result<()> {
